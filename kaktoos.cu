@@ -150,7 +150,7 @@ std::mutex info_lock;
 
 void gpu_manager(int32_t gpu_index) {
     std::string fileName = "kaktoos_seeds" + std::to_string(gpu_index) + ".txt";
-    FILE *out_file = fopen(fileName.c_str(), "w");
+    FILE *out_file = fopen(fileName.c_str(), "a");
     cudaSetDevice(gpu_index);
     while (offset < END) {
         *nodes[gpu_index].num_seeds = 0;
