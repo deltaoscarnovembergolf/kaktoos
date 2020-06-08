@@ -47,7 +47,7 @@ namespace java_random {
         return (uint32_t) (*random >> (48ULL - bits));
     }
 
-    __device__ int32_t next_int_unknown(uint64_t *seed, int16_t bound) {
+    __device__ inline int32_t next_int_unknown(uint64_t *seed, int16_t bound) {
         if ((bound & -bound) == bound) {
             *seed = (*seed * RANDOM_MULTIPLIER + RANDOM_ADDEND) & RANDOM_MASK;
             return (int32_t) ((bound * (*seed >> 17ULL)) >> 31ULL);
@@ -69,14 +69,15 @@ namespace java_random {
 
 }
 
-__global__ void crack(uint64_t seed_offset, int32_t *num_seeds, uint64_t *seeds) {
+__global__ __launch_bounds__(256, 2) void crack(uint64_t seed_offset, int32_t *num_seeds, uint64_t *seeds) {
     uint64_t originalSeed = blockIdx.x * blockDim.x + threadIdx.x + seed_offset;
     uint64_t seed = originalSeed;
 
     int8_t heightMap[1024];
 
-    for (auto &temp : heightMap) {
-        temp = FLOOR_LEVEL;
+#pragma unroll
+    for (int i = 0; i < 1024; i++) {
+        heightMap[i] = FLOOR_LEVEL;
     }
 
     int16_t currentHighestPos = 0;
