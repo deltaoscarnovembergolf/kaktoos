@@ -203,4 +203,7 @@ int main() {
         thread.join();
     }
 
+    printf("Done!\n");
+    printf("But, verily, it be the nature of dreams to end.\n");
+
 }
