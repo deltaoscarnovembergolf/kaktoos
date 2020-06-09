@@ -141,13 +141,14 @@ struct GPU_Node {
 void setup_gpu_node(GPU_Node* node, int32_t gpu) {
     cudaSetDevice(gpu);
     cudaMallocManaged(&node->num_seeds, sizeof(*node->num_seeds));
-    cudaMallocManaged(&node->seeds, 1ULL << 10ULL); // approx 1kb
+    cudaMallocManaged(&node->seeds, 1ULL << 10ULL);
 }
 
 GPU_Node nodes[GPU_COUNT];
 uint64_t offset = OFFSET;
 uint64_t count = 0;
 std::mutex info_lock;
+std::vector<uint64_t> seeds;
 
 void gpu_manager(int32_t gpu_index) {
     std::string fileName = "kaktoos_seeds" + std::to_string(gpu_index) + ".txt";
@@ -162,7 +163,7 @@ void gpu_manager(int32_t gpu_index) {
         cudaDeviceSynchronize();
         for (int32_t i = 0, e = *nodes[gpu_index].num_seeds; i < e; i++) {
             fprintf(out_file, "%lld\n", (long long int)nodes[gpu_index].seeds[i]);
-            printf("Found seed: %lld\n", (long long int)nodes[gpu_index].seeds[i]);
+            seeds.push_back(nodes[gpu_index].seeds[i]);
         }
         fflush(out_file);
         info_lock.lock();
@@ -197,7 +198,14 @@ int main() {
             speed,
             (double)(offset - OFFSET) / (END - OFFSET) * 100);
 
-        std::this_thread::sleep_for(0.5s);
+        if (timeElapsed % 2000 == 0) {
+            printf("Backup seed list:\n");
+            for (auto &seed : seeds) {
+                printf("%llu\n", (unsigned long long) seed);
+            }
+        }
+
+        std::this_thread::sleep_for(1s);
     }
 
     for (auto &thread : threads) {
