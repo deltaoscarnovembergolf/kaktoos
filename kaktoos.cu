@@ -173,7 +173,7 @@ void gpu_manager(int32_t gpu_index) {
 }
 
 int main() {
-    printf("Searching %ld total seeds...\n", END - OFFSET);
+    printf("Searching %ld total seeds...\n", (long int)(END - OFFSET));
 
     std::thread threads[GPU_COUNT];
 
