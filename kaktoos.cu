@@ -24,7 +24,7 @@
 #endif
 
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 256ULL
+#define BLOCK_SIZE 1024ULL
 #endif
 
 #ifndef GPU_COUNT
@@ -77,7 +77,7 @@ namespace java_random {
 
 }
 
-__global__ __launch_bounds__(256, 2) void crack(uint64_t seed_offset, int32_t *num_seeds, uint64_t *seeds) {
+__global__ __launch_bounds__(BLOCK_SIZE, 2) void crack(uint64_t seed_offset, int32_t *num_seeds, uint64_t *seeds) {
     uint64_t originalSeed = blockIdx.x * blockDim.x + threadIdx.x + seed_offset;
     uint64_t seed = originalSeed;
 
