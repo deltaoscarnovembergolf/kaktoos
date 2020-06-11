@@ -12,7 +12,7 @@
 #define RANDOM_MASK ((1ULL << 48ULL) - 1ULL)
 
 #ifndef FLOOR_LEVEL
-#define FLOOR_LEVEL 63ULL
+#define FLOOR_LEVEL 63LL
 #endif
 
 #ifndef WANTED_CACTUS_HEIGHT
@@ -38,6 +38,14 @@
 #ifndef END
 #define END (1ULL << 48ULL)
 #endif
+
+__device__ inline int8_t extract(const int8_t heightMap[], uint32_t i) {
+    return (int8_t) (heightMap[i >> 1ULL] >> ((i & 1ULL) << 2ULL)) & 0xF;
+}
+
+__device__ inline void increase(int8_t heightMap[], uint32_t i) {
+    heightMap[i >> 1ULL] += 1ULL << ((i & 1ULL) << 2ULL);
+}
 
 namespace java_random {
 
@@ -73,11 +81,11 @@ __global__ __launch_bounds__(256, 2) void crack(uint64_t seed_offset, int32_t *n
     uint64_t originalSeed = blockIdx.x * blockDim.x + threadIdx.x + seed_offset;
     uint64_t seed = originalSeed;
 
-    int8_t heightMap[1024];
+    int8_t heightMap[512];
 
 #pragma unroll
-    for (int i = 0; i < 1024; i++) {
-        heightMap[i] = FLOOR_LEVEL;
+    for (int i = 0; i < 512; i++) {
+        heightMap[i] = 0;
     }
 
     int16_t currentHighestPos = 0;
@@ -90,12 +98,12 @@ __global__ __launch_bounds__(256, 2) void crack(uint64_t seed_offset, int32_t *n
 
     for (i = 0; i < 10; i++) {
         // Keep, most threads finish early this way
-        if (WANTED_CACTUS_HEIGHT - heightMap[currentHighestPos] + FLOOR_LEVEL > 9 * (10 - i))
+        if (WANTED_CACTUS_HEIGHT - extract(heightMap, currentHighestPos) > 9 * (10 - i))
             return;
 
         initialPosX = java_random::next(&seed, 4) + 8;
         initialPosZ = java_random::next(&seed, 4) + 8;
-        terrainHeight = (heightMap[initialPosX + initialPosZ * 32] + 1) * 2;
+        terrainHeight = (extract(heightMap, initialPosX + initialPosZ * 32) + FLOOR_LEVEL + 1) * 2;
 
         initialPosY = java_random::next_int_unknown(&seed, terrainHeight);
 
@@ -106,39 +114,40 @@ __global__ __launch_bounds__(256, 2) void crack(uint64_t seed_offset, int32_t *n
 
             posMap = posX + posZ * 32;
             // Keep
-            if (posY <= heightMap[posMap] && posY >= 0)
+            if (posY <= extract(heightMap, posMap) + FLOOR_LEVEL && posY >= 0)
                 continue;
 
             offset = 1 + java_random::next_int_unknown(&seed, java_random::next_int(&seed) + 1);
 
             for (j = 0; j < offset; j++) {
-                if ((posY + j - 1) > heightMap[posMap] || posY < 0) continue;
-                if ((posY + j) <= heightMap[(posX + 1) + posZ * 32] && posY >= 0) continue;
-                if ((posY + j) <= heightMap[posX + (posZ - 1) * 32] && posY >= 0) continue;
-                if ((posY + j) <= heightMap[(posX - 1) + posZ * 32] && posY >= 0) continue;
-                if ((posY + j) <= heightMap[posX + (posZ + 1) * 32] && posY >= 0) continue;
+                if ((posY + j - 1) > extract(heightMap, posMap) + FLOOR_LEVEL || posY < 0) continue;
+                if ((posY + j) <= extract(heightMap, (posX + 1) + posZ * 32) + FLOOR_LEVEL && posY >= 0) continue;
+                if ((posY + j) <= extract(heightMap, posX + (posZ - 1) * 32) + FLOOR_LEVEL && posY >= 0) continue;
+                if ((posY + j) <= extract(heightMap, (posX - 1) + posZ * 32) + FLOOR_LEVEL && posY >= 0) continue;
+                if ((posY + j) <= extract(heightMap, posX + (posZ + 1) * 32) + FLOOR_LEVEL && posY >= 0) continue;
 
-                heightMap[posMap]++;
+                increase(heightMap, posMap);
 
-                if (heightMap[currentHighestPos] < heightMap[posMap]) {
+                if (extract(heightMap, currentHighestPos) < extract(heightMap, posMap)) {
                     currentHighestPos = posMap;
                 }
             }
         }
 
-        if (heightMap[currentHighestPos] - FLOOR_LEVEL >= WANTED_CACTUS_HEIGHT) {
+        if (extract(heightMap, currentHighestPos) >= WANTED_CACTUS_HEIGHT) {
             seeds[atomicAdd(num_seeds, 1)] = originalSeed;
             return;
         }
     }
 }
 
+
 struct GPU_Node {
-    int* num_seeds;
-    uint64_t* seeds;
+    int *num_seeds;
+    uint64_t *seeds;
 };
 
-void setup_gpu_node(GPU_Node* node, int32_t gpu) {
+void setup_gpu_node(GPU_Node *node, int32_t gpu) {
     cudaSetDevice(gpu);
     cudaMallocManaged(&node->num_seeds, sizeof(*node->num_seeds));
     cudaMallocManaged(&node->seeds, 1ULL << 10ULL);
@@ -152,17 +161,18 @@ std::vector<uint64_t> seeds;
 
 void gpu_manager(int32_t gpu_index) {
     std::string fileName = "kaktoos_seeds" + std::to_string(gpu_index) + ".txt";
-    FILE *out_file = fopen(fileName.c_str(), "a");
+    FILE *out_file = fopen(fileName.c_str(), "w");
     cudaSetDevice(gpu_index);
     while (offset < END) {
         *nodes[gpu_index].num_seeds = 0;
-        crack<<<WORK_UNIT_SIZE / BLOCK_SIZE, BLOCK_SIZE, 0>>> (offset, nodes[gpu_index].num_seeds, nodes[gpu_index].seeds);
+        crack<<<WORK_UNIT_SIZE / BLOCK_SIZE, BLOCK_SIZE, 0>>>(offset, nodes[gpu_index].num_seeds,
+                                                              nodes[gpu_index].seeds);
         info_lock.lock();
         offset += WORK_UNIT_SIZE;
         info_lock.unlock();
         cudaDeviceSynchronize();
         for (int32_t i = 0, e = *nodes[gpu_index].num_seeds; i < e; i++) {
-            fprintf(out_file, "%lld\n", (long long int)nodes[gpu_index].seeds[i]);
+            fprintf(out_file, "%lld\n", (long long int) nodes[gpu_index].seeds[i]);
             seeds.push_back(nodes[gpu_index].seeds[i]);
         }
         fflush(out_file);
@@ -174,12 +184,12 @@ void gpu_manager(int32_t gpu_index) {
 }
 
 int main() {
-    printf("Searching %ld total seeds...\n", (long int)(END - OFFSET));
+    printf("Searching %ld total seeds...\n", (long int) (END - OFFSET));
 
     std::thread threads[GPU_COUNT];
 
     time_t startTime = time(nullptr), currentTime;
-    for(int32_t i = 0; i < GPU_COUNT; i++) {
+    for (int32_t i = 0; i < GPU_COUNT; i++) {
         setup_gpu_node(&nodes[i], i);
         threads[i] = std::thread(gpu_manager, i);
     }
@@ -188,15 +198,15 @@ int main() {
 
     while (offset < END) {
         time(&currentTime);
-        int timeElapsed = (int)(currentTime - startTime);
-        double speed = (double)(offset - OFFSET) / (double)timeElapsed / 1000000.0;
+        int timeElapsed = (int) (currentTime - startTime);
+        double speed = (double) (offset - OFFSET) / (double) timeElapsed / 1000000.0;
         printf("Searched %lld seeds, offset: %lld found %lld matches. Time elapsed: %ds. Speed: %.2fm seeds/s. %f%%\n",
-               (long long int)(offset - OFFSET),
-               (long long int)offset,
-               (long long int)count,
+               (long long int) (offset - OFFSET),
+               (long long int) offset,
+               (long long int) count,
                timeElapsed,
                speed,
-               (double)(offset - OFFSET) / (END - OFFSET) * 100);
+               (double) (offset - OFFSET) / (END - OFFSET) * 100);
 
         if (timeElapsed % 2000 == 0) {
             printf("Backup seed list:\n");
