@@ -9,9 +9,6 @@
 #define CACTUS_HEIGHT 7
 #endif
 
-#ifndef FLOOR_LEVEL
-#define FLOOR_LEVEL 64
-#endif
 
 #include <chrono>
 #include <cstdint>
@@ -30,6 +27,7 @@ __device__ unsigned long long block_add_gpu[BLOCK_SIZE + 1];
 __device__ unsigned long long block_mul_gpu[BLOCK_SIZE + 1];
 __device__ unsigned long long chunk_add_gpu[CHUNK_SIZE + 1];
 __device__ unsigned long long chunk_mul_gpu[CHUNK_SIZE + 1];
+__device__ int32_t FLOOR_LEVEL;
 
 __device__ inline int32_t next(uint32_t *random, uint32_t *index, int bits)
 {
@@ -213,7 +211,7 @@ struct checkpoint_vars {
 unsigned long long offset;
 time_t elapsed_chkpoint;
 };
-
+int32_t floor_level_host;
 void run(int gpu_device)
 {
 	FILE* kaktseeds = fopen("kaktseeds.txt", "w+");
@@ -226,7 +224,7 @@ void run(int gpu_device)
 	cudaMemcpyToSymbol(block_mul_gpu, block_mul, (BLOCK_SIZE + 1) * sizeof(*block_mul));
 	cudaMemcpyToSymbol(chunk_add_gpu, chunk_add, (CHUNK_SIZE + 1) * sizeof(*chunk_add));
 	cudaMemcpyToSymbol(chunk_mul_gpu, chunk_mul, (CHUNK_SIZE + 1) * sizeof(*chunk_mul));
-
+	cudaMemcpyToSymbol(FLOOR_LEVEL, &floor_level_host, sizeof(int32_t));
 	while (true) {
 		*out_n = 0;
 		{
@@ -283,11 +281,12 @@ int main(int argc, char *argv[])
 			sscanf(argv[i + 1], "%llu", &BEGIN);
 		} else if (strcmp(param, "-e") == 0 || strcmp(param, "--end") == 0) {
 			sscanf(argv[i + 1], "%llu", &END);
+		} else if (strcmp(param, "-h") == 0 || strcmp(param, "--height") == 0){
+			sscanf(argv[i + 1], "%llu", &floor_level_host);
 		} else {
 			fprintf(stderr,"Unknown parameter: %s\n", param);
 		}
 	}
-
 	BEGINOrig = BEGIN;
 
 	FILE *checkpoint_data = boinc_fopen("kaktpoint.txt", "rb");
